@@ -129,7 +129,7 @@ jobs:
           if [ -z "$ok" ]; then echo "service never became ready"; exit 1; fi
 
       - name: Trivy scan
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@0.36.0
         with:
           image-ref: gitlab-yearly-report-service:ci
           severity: HIGH,CRITICAL
