@@ -1,0 +1,138 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: Lint & type-check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Ruff (lint)
+        run: ruff check .
+
+      - name: Ruff (format)
+        run: ruff format --check .
+
+      - name: Mypy
+        run: mypy
+
+      - name: Bandit
+        run: bandit -r src -q
+
+  test:
+    name: Tests (pytest + coverage)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Pytest with coverage
+        env:
+          GITLAB_URL: https://gitlab.example.com
+          GITLAB_TOKEN: test-token-not-real
+        run: |
+          pytest -v --cov --cov-report=term-missing --cov-report=xml --cov-fail-under=80
+
+      - name: Upload coverage artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-xml
+          path: coverage.xml
+          if-no-files-found: ignore
+
+  docker:
+    name: Docker image (build + scan)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Lint Dockerfile (hadolint)
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: Dockerfile
+          failure-threshold: warning
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: gitlab-yearly-report-service:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Smoke test fail-fast on missing token
+        run: |
+          set +e
+          docker run --rm -e GITLAB_URL=https://gitlab.example.com \
+            gitlab-yearly-report-service:ci
+          ec=$?
+          if [ "$ec" != "2" ]; then
+            echo "Expected exit code 2 for missing token, got $ec"
+            exit 1
+          fi
+
+      - name: Smoke test /health
+        run: |
+          docker run -d --rm --name svc -p 8080:8080 \
+            -e GITLAB_URL=https://gitlab.example.com \
+            -e GITLAB_TOKEN=fake \
+            gitlab-yearly-report-service:ci
+          for i in $(seq 1 20); do
+            if curl -fsS http://localhost:8080/health > /dev/null; then
+              echo "service ready after ${i}s"; ok=1; break
+            fi
+            sleep 1
+          done
+          docker logs svc || true
+          docker stop svc || true
+          if [ -z "$ok" ]; then echo "service never became ready"; exit 1; fi
+
+      - name: Trivy scan
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: gitlab-yearly-report-service:ci
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+          format: table

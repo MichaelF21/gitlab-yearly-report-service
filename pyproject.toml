@@ -1,0 +1,98 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "gitlab-yearly-report"
+version = "0.1.0"
+description = "Read-only GitLab yearly reporting service (HTTP + MCP)"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi==0.124.4",
+    "starlette==0.49.2",
+    "uvicorn[standard]==0.32.1",
+    "httpx==0.27.2",
+    "pydantic==2.11.10",
+    "pydantic-settings==2.7.1",
+    "tenacity==9.0.0",
+    "mcp==1.27.1",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest==8.3.3",
+    "pytest-asyncio==0.24.0",
+    "pytest-cov==6.0.0",
+    "respx==0.21.1",
+    "httpx==0.27.2",
+    "ruff==0.8.4",
+    "mypy==1.13.0",
+    "bandit==1.8.0",
+    "pip-audit==2.7.3",
+]
+
+[project.scripts]
+gitlab-report-api = "gitlab_report.main:run"
+gitlab-report-mcp = "gitlab_report.mcp_server:run"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+testpaths = ["tests"]
+pythonpath = ["src"]
+addopts = "-ra --strict-markers"
+
+[tool.coverage.run]
+source = ["gitlab_report"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false
+exclude_lines = [
+    "pragma: no cover",
+    "if __name__ == .__main__.:",
+    "raise NotImplementedError",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "B",   # bugbear
+    "UP",  # pyupgrade
+    "SIM", # simplify
+    "RUF", # ruff-specific
+]
+ignore = [
+    "E501",  # line length handled by formatter
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["B011"]  # asserts in tests are fine
+"src/gitlab_report/mcp_server.py" = ["UP007"]  # Optional[str] is intentional, see file comment
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+disallow_untyped_decorators = false  # FastMCP @mcp.tool() is untyped
+files = ["src"]
+
+[[tool.mypy.overrides]]
+module = ["tests.*"]
+ignore_errors = true
+
+[tool.bandit]
+exclude_dirs = ["tests", ".venv", "build"]

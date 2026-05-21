@@ -1,0 +1,17 @@
+# Convenience compose file for local development.
+#
+# Usage:
+#   GITLAB_URL=https://gitlab.com GITLAB_TOKEN=glpat-xxxx docker compose up --build
+#
+# Or copy .env.example to .env and edit it, then `docker compose up --build`.
+services:
+  api:
+    build: .
+    image: gitlab-yearly-report-service:dev
+    ports:
+      - "8080:8080"
+    environment:
+      GITLAB_URL: ${GITLAB_URL:?GITLAB_URL is required}
+      GITLAB_TOKEN: ${GITLAB_TOKEN:?GITLAB_TOKEN is required}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    restart: unless-stopped
