@@ -1,5 +1,7 @@
 # GitLab Yearly Report Service
 
+[![CI](https://github.com/MichaelF21/gitlab-yearly-report-service/actions/workflows/ci.yml/badge.svg)](https://github.com/MichaelF21/gitlab-yearly-report-service/actions/workflows/ci.yml)
+
 Read-only HTTP service (and bonus MCP server) that returns GitLab issues and
 merge requests created in a given year, either for a specific project or
 across the whole instance scoped to the token's permissions.

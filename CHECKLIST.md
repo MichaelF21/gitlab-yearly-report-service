@@ -59,5 +59,5 @@ Each row is ticked only after being verified.
 - [x] README has quick-start, env-var table, endpoint reference, curl examples
 - [x] README documents the MCP server setup
 - [x] README documents the local GitLab playground (per brief)
-- [ ] Repository is public (pending push)
-- [ ] CI is green on `main` (pending push)
+- [x] Repository is public: https://github.com/MichaelF21/gitlab-yearly-report-service
+- [x] CI is green on `main` (lint, test, docker — all three jobs passing)
