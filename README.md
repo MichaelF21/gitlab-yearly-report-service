@@ -12,6 +12,10 @@ Built for the Mobileye DevOps-IT home assignment.
 > step-by-step walkthrough with copy-pasteable commands and expected outputs,
 > mapped 1:1 to the requirements in the brief. [CHECKLIST.md](CHECKLIST.md)
 > records the verification status of every requirement.
+>
+> **Want to understand the code?** [ARCHITECTURE.md](ARCHITECTURE.md) walks
+> through every file, library, and design choice, with an extra-detailed
+> MCP section for first-time readers of that protocol.
 
 ---
 
@@ -227,25 +231,31 @@ Run the server directly:
 GITLAB_URL=https://gitlab.com GITLAB_TOKEN=glpat-xxxx gitlab-report-mcp
 ```
 
-### Claude Desktop / Claude Code config
+### Claude Code (project-scope, recommended)
 
-Add to `claude_desktop_config.json` (or equivalent):
+The repo ships with [`.mcp.json`](.mcp.json), which Claude Code picks up
+automatically when you open this directory. The first time, Claude Code
+prompts you to approve connecting to the server.
 
-```json
-{
-  "mcpServers": {
-    "gitlab-yearly-report": {
-      "command": "gitlab-report-mcp",
-      "env": {
-        "GITLAB_URL": "https://gitlab.com",
-        "GITLAB_TOKEN": "glpat-xxxxxxxxxxxx"
-      }
-    }
-  }
-}
+Before launching Claude Code, export the env vars the MCP server needs:
+
+```bash
+# Bash / Git Bash
+export GITLAB_TOKEN=glpat-...
+export GITLAB_URL=http://host.docker.internal:8929   # optional; default in .mcp.json
+
+# PowerShell
+$env:GITLAB_TOKEN = "glpat-..."
 ```
 
-Or with Docker:
+Then start (or restart) Claude Code from this directory. Type `/mcp` to
+verify `gitlab-yearly-report` is listed and connected.
+
+### Claude Desktop
+
+Edit `%APPDATA%\Claude\claude_desktop_config.json` (Windows) or
+`~/Library/Application Support/Claude/claude_desktop_config.json` (macOS)
+and merge in:
 
 ```json
 {
@@ -254,18 +264,24 @@ Or with Docker:
       "command": "docker",
       "args": [
         "run", "--rm", "-i",
-        "-e", "GITLAB_URL", "-e", "GITLAB_TOKEN",
-        "gitlab-yearly-report-service",
+        "--add-host", "host.docker.internal:host-gateway",
+        "-e", "GITLAB_URL=http://host.docker.internal:8929",
+        "-e", "GITLAB_TOKEN",
+        "gitlab-yearly-report-service:dev",
         "gitlab-report-mcp"
       ],
       "env": {
-        "GITLAB_URL": "https://gitlab.com",
-        "GITLAB_TOKEN": "glpat-xxxxxxxxxxxx"
+        "GITLAB_TOKEN": "glpat-..."
       }
     }
   }
 }
 ```
+
+Restart Claude Desktop. Try a prompt like
+*"List the issues in `playground/issues-mrs-test` from 2026."* — the
+model should call `get_issues_by_year` and answer with the trimmed
+record set.
 
 Quick smoke test using the MCP inspector:
 

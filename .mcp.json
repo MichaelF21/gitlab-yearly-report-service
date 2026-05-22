@@ -1,0 +1,20 @@
+{
+  "mcpServers": {
+    "gitlab-yearly-report": {
+      "type": "stdio",
+      "command": "docker",
+      "args": [
+        "run", "--rm", "-i",
+        "--add-host", "host.docker.internal:host-gateway",
+        "-e", "GITLAB_URL",
+        "-e", "GITLAB_TOKEN",
+        "gitlab-yearly-report-service:dev",
+        "gitlab-report-mcp"
+      ],
+      "env": {
+        "GITLAB_URL": "${GITLAB_URL:-http://host.docker.internal:8929}",
+        "GITLAB_TOKEN": "${GITLAB_TOKEN}"
+      }
+    }
+  }
+}
