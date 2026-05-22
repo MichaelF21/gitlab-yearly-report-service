@@ -1,17 +1,75 @@
-# Convenience compose file for local development.
+# One-command local playground: GitLab + the report service.
 #
 # Usage:
-#   GITLAB_URL=https://gitlab.com GITLAB_TOKEN=glpat-xxxx docker compose up --build
+#   1. Copy .env.example to .env
+#   2. docker compose up -d gitlab            # ~3-5 min on first boot
+#      ./scripts/bootstrap-playground.sh      # mints a PAT, prints the line to add to .env
+#   3. docker compose up -d                   # brings up the api against http://gitlab
 #
-# Or copy .env.example to .env and edit it, then `docker compose up --build`.
+# Tear down:
+#   docker compose down                       # keeps the GitLab volumes
+#   docker compose down -v                    # nukes data too (~7GB)
+#
+# Networking:
+#   - api -> gitlab: uses the internal compose network, http://gitlab (port 80).
+#   - host -> gitlab UI / API: http://localhost:8929
+#   - host -> report API: http://localhost:8080
+#
+# If you don't want the local GitLab and just want to point the service at an
+# existing GitLab instance, ignore this file and use the docker run command
+# in the README instead.
+
 services:
+  gitlab:
+    image: gitlab/gitlab-ee:18.10.5-ee.0
+    container_name: gitlab
+    hostname: gitlab.example.com
+    environment:
+      GITLAB_OMNIBUS_CONFIG: "external_url 'http://localhost'"
+    ports:
+      - "8929:80"
+      - "8443:443"
+      - "2222:22"
+    volumes:
+      - gitlab-config:/etc/gitlab
+      - gitlab-logs:/var/log/gitlab
+      - gitlab-data:/var/opt/gitlab
+    shm_size: 256m
+    restart: unless-stopped
+    # gitlab/gitlab-ee ships with a HEALTHCHECK that pings the internal
+    # health endpoint; we just give it a generous start-period since cold
+    # boot can take several minutes.
+    healthcheck:
+      start_period: 300s
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
   api:
     build: .
     image: gitlab-yearly-report-service:dev
+    container_name: report
+    depends_on:
+      gitlab:
+        condition: service_healthy
     ports:
       - "8080:8080"
     environment:
-      GITLAB_URL: ${GITLAB_URL:?GITLAB_URL is required}
-      GITLAB_TOKEN: ${GITLAB_TOKEN:?GITLAB_TOKEN is required}
+      # Service-to-service via compose network — no port needed.
+      GITLAB_URL: http://gitlab
+      # Refuses to start without a token. Run scripts/bootstrap-playground.sh
+      # to mint one after GitLab is up, then put it in .env.
+      GITLAB_TOKEN: ${GITLAB_TOKEN:?GITLAB_TOKEN missing — run scripts/bootstrap-playground.sh and add the output to .env}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
     restart: unless-stopped
+
+# Volume names are pinned (no project prefix) so the playground state is
+# portable between compose mode and the plain `docker run` form documented
+# in the README. Either mode reuses the other's bootstrapped data.
+volumes:
+  gitlab-config:
+    name: gitlab-config
+  gitlab-logs:
+    name: gitlab-logs
+  gitlab-data:
+    name: gitlab-data

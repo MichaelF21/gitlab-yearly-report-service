@@ -17,6 +17,11 @@ Built for the Mobileye DevOps-IT home assignment.
 
 ## Quick start
 
+Two supported flows depending on whether you bring your own GitLab or want
+the bundled playground.
+
+### Option A — Against an existing GitLab
+
 ```bash
 docker build -t gitlab-yearly-report-service .
 
@@ -26,7 +31,34 @@ docker run --rm -p 8080:8080 \
   gitlab-yearly-report-service
 ```
 
-Then:
+### Option B — One-command local playground (compose)
+
+`docker-compose.yml` brings up GitLab 18.10.5 EE alongside the service, on
+a shared compose network. GitLab is heavy (~3GB image, ~4GB RAM, ~3-5 min
+to boot), so this only makes sense if you actually want a sandbox.
+
+```bash
+cp .env.example .env
+
+# 1. Start GitLab (first boot is slow — wait until "healthy")
+docker compose up -d gitlab
+
+# 2. Mint a PAT and print the line for .env
+./scripts/bootstrap-playground.sh
+# -> GITLAB_TOKEN=glpat-xxxx
+# Append that to .env.
+
+# 3. Start the service against the local GitLab
+docker compose up -d
+```
+
+GitLab UI: http://localhost:8929 (login `root` / `docker exec gitlab cat /etc/gitlab/initial_root_password`).
+Report API: http://localhost:8080.
+
+Detailed verification steps including the bootstrap flow are in
+[TESTING.md](TESTING.md).
+
+### Verifying the service
 
 ```bash
 curl -s http://localhost:8080/health
@@ -245,31 +277,54 @@ npx @modelcontextprotocol/inspector gitlab-report-mcp
 
 ## Local GitLab playground
 
-The brief includes a snippet for running GitLab 18.10+ locally. After the
-container is up, sign in with the password from
-`/etc/gitlab/initial_root_password` inside the container, create a project
-and a few issues/MRs, then mint a personal-access token with `read_api`.
+The brief suggests running a local GitLab instance for testing. Two ways:
+
+### Recommended — via compose (one command + a PAT mint)
+
+The bundled `docker-compose.yml` brings up GitLab 18.10.5 EE *and* the
+report service on a shared network. See [Option B in the Quick start](#option-b--one-command-local-playground-compose):
 
 ```bash
-GITLAB_HOME=/tmp/gitlab
+cp .env.example .env
+docker compose up -d gitlab           # ~3-5 min cold boot
+./scripts/bootstrap-playground.sh     # mints a PAT, prints GITLAB_TOKEN=...
+# Paste the line into .env
+docker compose up -d                  # api joins, depends on gitlab being healthy
+```
+
+GitLab UI on http://localhost:8929 (root + `docker exec gitlab cat /etc/gitlab/initial_root_password`).
+Report API on http://localhost:8080.
+
+### Manual — equivalent to the brief's command
+
+If you'd rather not use compose, the brief's `docker run` form works too
+(adjusted slightly so it doesn't need a hosts-file entry):
+
+```bash
 docker run --detach \
   --hostname gitlab.example.com \
-  --env GITLAB_OMNIBUS_CONFIG="external_url 'http://gitlab.example.com'" \
-  --publish 443:443 --publish 80:80 --publish 22:22 \
-  --name gitlab --restart always \
-  --volume $GITLAB_HOME/config:/etc/gitlab \
-  --volume $GITLAB_HOME/logs:/var/log/gitlab \
-  --volume $GITLAB_HOME/data:/var/opt/gitlab \
+  --env GITLAB_OMNIBUS_CONFIG="external_url 'http://localhost'" \
+  --publish 8929:80 --publish 8443:443 --publish 2222:22 \
+  --name gitlab --restart unless-stopped \
+  --volume gitlab-config:/etc/gitlab \
+  --volume gitlab-logs:/var/log/gitlab \
+  --volume gitlab-data:/var/opt/gitlab \
   --shm-size 256m \
   gitlab/gitlab-ee:18.10.5-ee.0
 
-# Wait until http://gitlab.example.com is reachable (a few minutes on first boot).
+# Wait until http://localhost:8929/api/v4/version returns 401 (a few minutes on first boot).
 docker exec -it gitlab cat /etc/gitlab/initial_root_password
+
+# Mint a PAT (same logic as scripts/bootstrap-playground.sh):
+docker exec gitlab gitlab-rails runner '
+user = User.find_by_username("root")
+pat = user.personal_access_tokens.create(name: "playground", scopes: [:api], expires_at: 365.days.from_now)
+pat.save!; puts pat.token'
 
 # Then run this service against it:
 docker run --rm -p 8080:8080 \
-  --add-host gitlab.example.com:host-gateway \
-  -e GITLAB_URL=http://gitlab.example.com \
+  --add-host host.docker.internal:host-gateway \
+  -e GITLAB_URL=http://host.docker.internal:8929 \
   -e GITLAB_TOKEN=glpat-xxxx \
   gitlab-yearly-report-service
 ```

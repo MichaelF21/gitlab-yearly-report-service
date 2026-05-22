@@ -300,10 +300,21 @@ docker rmi gitlab/gitlab-ee:18.10.5-ee.0
 
 ## Resuming the playground
 
-If both containers have been stopped:
+If both containers have been stopped, the fastest way to bring them back is
+via compose (the same `gitlab-config`/`-logs`/`-data` volumes back the
+playground regardless of whether you started them via `docker run` or
+`docker compose`):
 
 ```bash
-# 1. Start GitLab and wait for the API
+# Compose path — uses .env for GITLAB_TOKEN
+docker compose up -d
+# wait until 'docker compose ps' shows both services healthy
+curl -fsS http://localhost:8080/health && echo " report OK"
+```
+
+Manual path (no compose) — equivalent:
+
+```bash
 docker start gitlab
 for i in $(seq 1 60); do
   code=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8929/api/v4/version)
@@ -311,23 +322,43 @@ for i in $(seq 1 60); do
   sleep 5
 done
 
-# 2. Start the report service
 docker run -d --rm --name report -p 8080:8080 \
   --add-host host.docker.internal:host-gateway \
   -e GITLAB_URL=http://host.docker.internal:8929 \
   -e GITLAB_TOKEN=glpat-_KoddDtFd4HSybNhcVdGZm86MQp1OjEH.01.0w0t1zvre \
   gitlab-yearly-report-service:dev
 
-# 3. Confirm both
 curl -fsS http://localhost:8080/health && echo " report OK"
 ```
 
-If the PATs above ever expire (they're set to 365 days for the admin
-and 30 days for the limited one), mint fresh ones with:
+## Starting fresh on a different machine
+
+If you've never run the playground before:
 
 ```bash
-docker exec gitlab gitlab-rails runner '
-user = User.find_by_username("root")
-token = user.personal_access_tokens.create(name: "regen", scopes: [:api], expires_at: 365.days.from_now)
-token.save!; puts token.token'
+git clone https://github.com/MichaelF21/gitlab-yearly-report-service
+cd gitlab-yearly-report-service
+cp .env.example .env
+
+docker compose up -d gitlab           # ~3-5 min cold boot
+./scripts/bootstrap-playground.sh     # mints a PAT, prints GITLAB_TOKEN=...
+
+# Paste the GITLAB_TOKEN=... line into .env, then:
+docker compose up -d
+```
+
+Then come back here and work through sections 1-4 above — note that on a
+fresh playground you won't have the bootstrapped issues and MRs yet, so
+section 2 will return zero counts until you create some test data via the
+GitLab UI or API.
+
+## Regenerating PATs
+
+If the PATs above ever expire (the admin one is 365 days, the limited one
+30 days), mint fresh ones with the bootstrap script:
+
+```bash
+./scripts/bootstrap-playground.sh
+# Or, for the limited-scope variant used in the 403 test:
+TOKEN_SCOPE=read_repository TOKEN_TTL_DAYS=30 ./scripts/bootstrap-playground.sh
 ```
