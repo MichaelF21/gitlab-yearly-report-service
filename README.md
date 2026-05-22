@@ -8,6 +8,11 @@ across the whole instance scoped to the token's permissions.
 
 Built for the Mobileye DevOps-IT home assignment.
 
+> **Want to verify the service yourself?** See [TESTING.md](TESTING.md) for a
+> step-by-step walkthrough with copy-pasteable commands and expected outputs,
+> mapped 1:1 to the requirements in the brief. [CHECKLIST.md](CHECKLIST.md)
+> records the verification status of every requirement.
+
 ---
 
 ## Quick start
