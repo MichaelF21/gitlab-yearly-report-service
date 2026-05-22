@@ -218,7 +218,12 @@ variable, and `exit code: 2`.
 
 ## 4. Bonus — MCP server
 
-Drive the MCP server over stdio and confirm both required tools are present:
+The MCP server is the bonus deliverable. Five practical ways to test it,
+ordered from cheapest smoke check to fullest end-to-end.
+
+### 4.1 — Stdio handshake (protocol smoke)
+
+Confirms the server speaks JSON-RPC 2.0 and exposes both required tools.
 
 ```bash
 { printf '%s\n%s\n%s\n' \
@@ -229,13 +234,12 @@ Drive the MCP server over stdio and confirm both required tools are present:
 } | docker run --rm -i \
     --add-host host.docker.internal:host-gateway \
     -e GITLAB_URL=http://host.docker.internal:8929 \
-    -e GITLAB_TOKEN=glpat-_KoddDtFd4HSybNhcVdGZm86MQp1OjEH.01.0w0t1zvre \
+    -e GITLAB_TOKEN="$(grep ^GITLAB_TOKEN .env | cut -d= -f2)" \
     gitlab-yearly-report-service:dev gitlab-report-mcp 2>/dev/null \
   | python -c "
 import sys, json
 for line in sys.stdin:
-    line = line.strip()
-    if not line: continue
+    if not line.strip(): continue
     obj = json.loads(line)
     if obj.get('id') == 1:
         print('init OK, server:', obj['result']['serverInfo']['name'])
@@ -249,20 +253,162 @@ init OK, server: gitlab-yearly-report
 tools: ['get_issues_by_year', 'get_merge_requests_by_year']
 ```
 
-For interactive MCP exploration:
+### 4.2 — Stdio `tools/call` (functional smoke)
+
+Goes the rest of the way: actually invoke each tool and confirm it
+returns the same data the HTTP API would. The list is in
+`result.structuredContent.result` (FastMCP also mirrors each element
+into `result.content[]` as separate TextContent blocks).
+
+Save the responses to a file, then parse:
+
+```bash
+PAT="$(grep ^GITLAB_TOKEN .env | cut -d= -f2)"
+OUT="${TMPDIR:-/tmp}/mcp.jsonl"
+
+{ printf '%s\n%s\n%s\n%s\n' \
+    '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"demo","version":"0"}}}' \
+    '{"jsonrpc":"2.0","method":"notifications/initialized","params":{}}' \
+    '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"get_issues_by_year","arguments":{"year":2026,"project_id_or_path":"playground/issues-mrs-test"}}}' \
+    '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"get_merge_requests_by_year","arguments":{"year":2026}}}'
+  sleep 4
+} | docker run --rm -i \
+    --add-host host.docker.internal:host-gateway \
+    -e GITLAB_URL=http://host.docker.internal:8929 \
+    -e GITLAB_TOKEN="$PAT" \
+    gitlab-yearly-report-service:dev gitlab-report-mcp 2>/dev/null \
+  > "$OUT"
+
+python <<PY
+import json
+for line in open("$OUT"):
+    if not line.strip(): continue
+    obj = json.loads(line)
+    rid = obj.get("id")
+    if rid == 2:
+        items = obj["result"]["structuredContent"]["result"]
+        print("get_issues_by_year(2026, 'playground/issues-mrs-test')")
+        print("  ->", len(items), "issues")
+    elif rid == 3:
+        items = obj["result"]["structuredContent"]["result"]
+        print("get_merge_requests_by_year(2026)")
+        print("  ->", len(items), "MRs")
+PY
+```
+**Expected** (matches the HTTP API counts):
+```
+get_issues_by_year(2026, 'playground/issues-mrs-test')
+  -> 5 issues
+get_merge_requests_by_year(2026)
+  -> 4 MRs
+```
+
+### 4.3 — MCP Inspector (interactive browser UI)
+
+The official Anthropic tool. Lists tools, lets you fill in arguments
+through a form, displays the JSON response inline. No setup beyond `npx`.
 
 ```bash
 npx @modelcontextprotocol/inspector \
   docker run --rm -i \
   --add-host host.docker.internal:host-gateway \
   -e GITLAB_URL=http://host.docker.internal:8929 \
-  -e GITLAB_TOKEN=glpat-_KoddDtFd4HSybNhcVdGZm86MQp1OjEH.01.0w0t1zvre \
+  -e GITLAB_TOKEN="$(grep ^GITLAB_TOKEN .env | cut -d= -f2)" \
   gitlab-yearly-report-service:dev gitlab-report-mcp
 ```
 
-Then open the URL the inspector prints. Click each tool, set
-`year=2026`, optionally a `project_id_or_path`, and `Call`. Same numbers
-you saw via the HTTP API should come back.
+The inspector prints a `http://localhost:<port>/?MCP_PROXY_AUTH_TOKEN=...`
+URL — open that. Click "Tools" in the left sidebar, then either tool, fill
+in `year` (and optionally `project_id_or_path`), and click "Run Tool".
+Same data shape as section 4.2 comes back, formatted nicely.
+
+### 4.4 — Claude Desktop / Claude Code (real end-to-end)
+
+The point of an MCP server is to let an AI model use it. Wire it up and
+ask Claude natural-language questions; verify it picks the right tool
+with the right arguments.
+
+**Claude Desktop**: edit
+`%APPDATA%\Claude\claude_desktop_config.json` (Windows) and add:
+
+```json
+{
+  "mcpServers": {
+    "gitlab-yearly-report": {
+      "command": "docker",
+      "args": [
+        "run", "--rm", "-i",
+        "--add-host", "host.docker.internal:host-gateway",
+        "-e", "GITLAB_URL=http://host.docker.internal:8929",
+        "-e", "GITLAB_TOKEN",
+        "gitlab-yearly-report-service:dev",
+        "gitlab-report-mcp"
+      ],
+      "env": {
+        "GITLAB_TOKEN": "glpat-..."
+      }
+    }
+  }
+}
+```
+
+Restart Claude Desktop, then in a new chat ask things like:
+
+- *"List the issues created in 2026 in `playground/issues-mrs-test`."*
+- *"How many merge requests were opened across all projects in 2026?"*
+- *"What was the title of the third MR in project 1 in 2026?"*
+
+Watch for Claude announcing the tool call (it'll show "using
+`get_issues_by_year`..." with the arguments) and verify the answer
+matches the data you can see in the GitLab UI.
+
+**Claude Code**: same JSON, but in
+`%APPDATA%\Claude Code\settings.json` under `"mcpServers"`. Or use the
+`/mcp` slash command to manage MCP servers without editing the file
+directly.
+
+### 4.5 — Python MCP client (programmatic, for CI regression)
+
+If you want MCP coverage in CI alongside the existing pytest suite:
+
+```python
+# tests/test_mcp.py — sketch, not yet checked in
+import asyncio, json
+from mcp import ClientSession, StdioServerParameters
+from mcp.client.stdio import stdio_client
+
+async def test_mcp_tools_list_and_call():
+    params = StdioServerParameters(
+        command="docker",
+        args=[
+            "run", "--rm", "-i",
+            "--add-host", "host.docker.internal:host-gateway",
+            "-e", "GITLAB_URL=http://host.docker.internal:8929",
+            "-e", f"GITLAB_TOKEN={os.environ['GITLAB_TOKEN']}",
+            "gitlab-yearly-report-service:dev",
+            "gitlab-report-mcp",
+        ],
+    )
+    async with stdio_client(params) as (read, write):
+        async with ClientSession(read, write) as session:
+            await session.initialize()
+            tools = await session.list_tools()
+            assert {t.name for t in tools.tools} == {
+                "get_issues_by_year",
+                "get_merge_requests_by_year",
+            }
+            result = await session.call_tool(
+                "get_issues_by_year",
+                arguments={"year": 2026, "project_id_or_path": "playground/issues-mrs-test"},
+            )
+            items = json.loads(result.content[0].text) if isinstance(result.content[0].text, str) else result.structuredContent["result"]
+            assert len(items) == 5
+```
+
+Not currently checked into `tests/` — the existing pytest suite covers
+the domain layer (`reports.py`) that the MCP server thinly wraps, so MCP
+coverage would be largely redundant. Add this if you ever change the MCP
+adapter beyond the current thin wrapper.
 
 ---
 
