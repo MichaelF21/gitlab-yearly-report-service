@@ -66,6 +66,11 @@ services:
 # Volume names are pinned (no project prefix) so the playground state is
 # portable between compose mode and the plain `docker run` form documented
 # in the README. Either mode reuses the other's bootstrapped data.
+#
+# Note: if a volume already existed before compose first ran (e.g. you
+# created it via `docker volume create` or the README's docker-run flow),
+# compose prints a one-time warning. It's cosmetic — compose adopts the
+# volume and uses it normally. See TESTING.md "Troubleshooting".
 volumes:
   gitlab-config:
     name: gitlab-config

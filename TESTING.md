@@ -509,6 +509,66 @@ docker rmi gitlab/gitlab-ee:18.10.5-ee.0
 
 ---
 
+## Troubleshooting
+
+### `dependency failed to start: container gitlab is unhealthy`
+
+GitLab's PostgreSQL is stuck on a stale lock file from a previous unclean
+shutdown (Docker Desktop killed without graceful stop, OS reboot, etc).
+Symptoms in `docker logs gitlab`:
+
+```
+FATAL: lock file "/var/opt/gitlab/postgresql/.s.PGSQL.5432.lock" already exists
+HINT:  Is another postmaster (PID 638) using socket file ...
+```
+
+Postgres respawns in a loop, the GitLab API returns 502, and compose's
+`depends_on: condition: service_healthy` gives up on `api`.
+
+Fix:
+
+```bash
+docker exec gitlab gitlab-ctl stop postgresql
+docker exec gitlab sh -c 'rm -f /var/opt/gitlab/postgresql/data/postmaster.pid /var/opt/gitlab/postgresql/.s.PGSQL.5432.lock'
+docker exec gitlab gitlab-ctl start postgresql
+# Wait ~10s, then:
+docker inspect gitlab --format '{{.State.Health.Status}}'
+# Should now print: healthy
+docker compose up -d
+```
+
+Avoid by always shutting down with `docker compose down` (or `docker stop
+gitlab`) before powering off the machine; that lets GitLab's runit
+supervisor stop postgres cleanly so the lock file gets removed.
+
+### Warning: `volume "gitlab-data" already exists but was not created by Docker Compose`
+
+Cosmetic. Compose is noting that the volume was created outside compose
+(via the README's docker-run flow, or by a previous compose run with
+different settings). It still adopts and uses the volume normally. After
+the first `compose up`, subsequent runs don't show the warning.
+
+Only act on it if you actually want compose to ignore those volumes —
+in which case rename them or delete and let compose create them fresh.
+
+### `error: required variable GITLAB_TOKEN is missing a value`
+
+You're trying to `docker compose up` without a `GITLAB_TOKEN` in `.env`.
+This is intentional — the `${GITLAB_TOKEN:?...}` enforcement in compose
+prevents starting the api with an empty token. Run section
+[0. Environment setup → Cold start](#cold-start-no-playground-yet).
+
+### `/mcp` in Claude Code doesn't show `gitlab-yearly-report`
+
+Claude Code only reads `.mcp.json` from the directory you launched
+`claude` in. If you launched from a parent directory, the `.mcp.json` in
+this repo isn't seen. Two fixes:
+
+1. Restart `claude` from inside this repo's directory, or
+2. Add the server at user scope — see README's "Claude Code" section.
+
+---
+
 ## Resuming the playground
 
 If both containers have been stopped, the fastest way to bring them back is
