@@ -12,10 +12,6 @@ Built for the Mobileye DevOps-IT home assignment.
 > step-by-step walkthrough with copy-pasteable commands and expected outputs,
 > mapped 1:1 to the requirements in the brief. [CHECKLIST.md](CHECKLIST.md)
 > records the verification status of every requirement.
->
-> **Want to understand the code?** [ARCHITECTURE.md](ARCHITECTURE.md) walks
-> through every file, library, and design choice, with an extra-detailed
-> MCP section for first-time readers of that protocol.
 
 ---
 
