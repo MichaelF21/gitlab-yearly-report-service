@@ -4,10 +4,75 @@ A walkthrough for verifying the service against a live GitLab instance,
 covering every functional and error-mapping requirement from the
 assignment brief.
 
-The playground is already running on this machine. If you stopped it,
-see [Resuming the playground](#resuming-the-playground) at the end.
+## 0. Environment setup
 
-## What's running
+The minimum setup depends on what state you're in.
+
+### Prerequisites (per machine, one-time)
+
+| Tool | Purpose | Install |
+|------|---------|---------|
+| Docker Desktop (running) | Hosts the gitlab + api containers | https://www.docker.com/products/docker-desktop |
+| Git | Clone this repo | `winget install Git.Git` |
+| curl + Python | Run the test commands below | Come bundled with Git Bash on Windows |
+| Node.js (optional) | MCP Inspector — section 4.3 | `winget install OpenJS.NodeJS` |
+
+### Cold start (no playground yet)
+
+`docker compose up -d` **alone is not enough** the first time. Compose
+enforces that `GITLAB_TOKEN` is set in `.env` before starting the api
+service, and a token can only be minted inside a running GitLab. Five
+steps:
+
+```bash
+git clone https://github.com/MichaelF21/gitlab-yearly-report-service
+cd gitlab-yearly-report-service
+cp .env.example .env
+
+# Start GitLab first (3-5 min cold boot).
+docker compose up -d gitlab
+
+# Mint a PAT once GitLab's API responds. The script polls and prints
+# a GITLAB_TOKEN=glpat-... line ready to paste into .env.
+./scripts/bootstrap-playground.sh
+
+# Paste the GITLAB_TOKEN= line over the empty one in .env, then:
+docker compose up -d
+```
+
+After that, `docker ps` should show both containers as `(healthy)`.
+
+### Resume (volumes preserved)
+
+If you only ran `docker compose down` (no `-v` flag), then **one
+command** is enough — the GitLab data and the PAT in `.env` are still
+valid:
+
+```bash
+docker compose up -d
+```
+
+### Full reset
+
+```bash
+docker compose down -v          # nukes the gitlab-* volumes (~7GB)
+rm .env                          # next bootstrap will need a fresh token
+```
+
+Then follow the cold-start steps again.
+
+### Configure MCP clients (only if you want to test sections 4.3-4.4)
+
+| Client | Action |
+|--------|--------|
+| MCP Inspector | Just needs Node.js installed; the `npx` command in §4.3 handles everything else. |
+| Claude Code (project-scope) | The committed [`.mcp.json`](.mcp.json) auto-registers when you launch `claude` from this directory. Set `GITLAB_TOKEN` in your shell first. |
+| Claude Code (user-scope, works anywhere) | Add an entry to `~/.claude.json` under top-level `mcpServers`. See README's MCP section. |
+| Claude Desktop | Edit `%APPDATA%\Claude\claude_desktop_config.json` per the README's MCP section. Restart Claude Desktop. |
+
+---
+
+## What's running once setup is done
 
 | Service              | URL                     | Purpose                             |
 |----------------------|-------------------------|-------------------------------------|
